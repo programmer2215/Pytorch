@@ -1,92 +1,132 @@
-# inviting the homies top the party  ;)
+# inviting the homies to the party  ;)
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import jovian
 import torchvision
-from torchvision.datasets import MNIST
+import torch.nn as nn
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 import torchvision.transforms as transforms
+from torchvision.datasets import MNIST
 from torch.utils.data import random_split
 from torch.utils.data import DataLoader
-import random
+from random import randint
 
-# Download training dataset (PIL image objects)
-image_dataset = MNIST(root='data/', download=True)
-
-# Training dataset converted to tensors
-tensor_training_dataset = MNIST(root='data/', train=True, transform=transforms.ToTensor())
-
-# data example
-image, label = image_dataset[random.randint(0, 60001)]
-print(f'Label: {label}')
-plt.imshow(image, cmap='gray')
-plt.show()
-
-img_tensor, label = tensor_training_dataset[0]
-
-# splitting existing dataset into Training and validation sets
-train_ds, val_ds = random_split(tensor_training_dataset, [50000, 10000])
-
-# setting batch size for training model efficiency
+# Hyperparmeters
 batch_size = 128
+learning_rate = 0.001
 
-# load data
-train_loader = DataLoader(train_ds, batch_size, shuffle=True)
-val_loader = DataLoader(val_ds, batch_size)
-
-# create Logistic regression model
+# Other constants
 input_size = 28*28
-output_size = 10
+num_classes = 10
 
-""" model = nn.Linear(input_size, output_size)
+jovian.reset()
+jovian.log_hyperparams(batch_size=batch_size, learning_rate=learning_rate)
 
-for images, labels in train_loader:
-    print(labels)
+# Download dataset
+dataset = MNIST(root='data/', train=True, transform=transforms.ToTensor(), download=True)
 
-    # reshape input matrix into a vector of size 784
-    images.reshape(batch_size, input_size)
-    data = model(images) """
+# Training validation & test dataset
+train_ds, val_ds = random_split(dataset, [50000, 10000])
+test_ds = MNIST(root='data/', train=False, transform=transforms.ToTensor())
 
-# extend the nn.module class to create a Mnist class with all required functionality.
+# Dataloaders
+train_loader = DataLoader(train_ds, batch_size, shuffle=True)
+val_loader = DataLoader(val_ds, batch_size*2)
+test_loader = DataLoader(test_ds, batch_size*2)
 
+image, label = train_ds[randint(0, len(train_ds))]
+plt.imshow(image[0], cmap='gray')
+plt.show()
+print('Label:', label)
+
+# MODEL 
 class MnistModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = nn.Linear(input_size, output_size)
-
+        self.linear = nn.Linear(input_size, num_classes)
+        
     def forward(self, xb):
-        xb = xb.reshape(-1, input_size)
+        xb = xb.reshape(-1, 784)
         out = self.linear(xb)
         return out
     
+    def training_step(self, batch):
+        images, labels = batch 
+        out = self(images)                  # Generate predictions
+        loss = F.cross_entropy(out, labels) # Calculate loss
+        return loss
+    
+    def validation_step(self, batch):
+        images, labels = batch 
+        out = self(images)                    # Generate predictions
+        loss = F.cross_entropy(out, labels)   # Calculate loss
+        acc = accuracy(out, labels)           # Calculate accuracy
+        return {'val_loss': loss.detach(), 'val_acc': acc.detach()}
+        
+    def validation_epoch_end(self, outputs):
+        batch_losses = [x['val_loss'] for x in outputs]
+        epoch_loss = torch.stack(batch_losses).mean()   # Combine losses
+        batch_accs = [x['val_acc'] for x in outputs]
+        epoch_acc = torch.stack(batch_accs).mean()      # Combine accuracies
+        return {'val_loss': epoch_loss.item(), 'val_acc': epoch_acc.item()}
+    
+    def epoch_end(self, epoch, result):
+        print("Epoch [{}], val_loss: {:.4f}, val_acc: {:.4f}".format(epoch, result['val_loss'], result['val_acc']))
+    
 model = MnistModel()
-
-for images, labels in train_loader:
-    print(images.shape)
-    outputs = model(images)
-    break
-
-print('outputs.shape : ', outputs.shape)
-print('Sample outputs :\n', outputs[:2].data)
-
-# Apply softmax for each output row
-probs = F.softmax(outputs, dim=1)
-
-# Look at sample probabilities
-print("Sample probabilities:\n", probs[:2].data)
-
-# Add up the probabilities of an output row
-print("Sum: ", torch.sum(probs[0]).item())
-
-max_probs, preds = torch.max(probs, dim=1)
-print(preds)
-print(max_probs)
-print(labels)
-
-print(torch.sum(preds == labels))
 
 def accuracy(outputs, labels):
     _, preds = torch.max(outputs, dim=1)
     return torch.tensor(torch.sum(preds == labels).item() / len(preds))
 
-print(accuracyout)
+def evaluate(model, val_loader):
+    outputs = [model.validation_step(batch) for batch in val_loader]
+    return model.validation_epoch_end(outputs)
+
+def fit(epochs, lr, model, train_loader, val_loader, opt_func=torch.optim.SGD):
+    history = []
+    optimizer = opt_func(model.parameters(), lr)
+    for epoch in range(epochs):
+        # Training Phase 
+        for batch in train_loader:
+            loss = model.training_step(batch)
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+        # Validation phase
+        result = evaluate(model, val_loader)
+        model.epoch_end(epoch, result)
+        history.append(result)
+    return history
+
+evaluate(model, val_loader)
+
+history = fit(5, 0.001, model, train_loader, val_loader)
+
+accuracies = [r['val_acc'] for r in history]
+plt.plot(accuracies, '-x')
+plt.xlabel('epoch')
+plt.ylabel('accuracy')
+plt.title('Accuracy vs. No. of epochs');
+plt.show()
+
+# Evaluate on test dataset
+result = evaluate(model, test_loader)
+result
+
+jovian.log_metrics(test_acc=result['val_acc'], test_loss=result['val_loss'])
+
+def predict_image(img, model):
+    xb = img.unsqueeze(0)
+    yb = model(xb)
+    _, preds  = torch.max(yb, dim=1)
+    return preds[0].item()
+
+img, label = test_ds[919]
+plt.imshow(img[0], cmap='gray')
+plt.show()
+print('Label:', label, ', Predicted:', predict_image(img, model))
+
+torch.save(model.state_dict(), 'mnist-logistic.pth')
+
