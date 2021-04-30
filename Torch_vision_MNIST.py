@@ -35,6 +35,7 @@ train_loader = DataLoader(train_ds, batch_size, shuffle=True)
 val_loader = DataLoader(val_ds, batch_size*2)
 test_loader = DataLoader(test_ds, batch_size*2)
 
+# example image
 image, label = train_ds[randint(0, len(train_ds))]
 plt.imshow(image[0], cmap='gray')
 plt.show()
@@ -42,21 +43,25 @@ print('Label:', label)
 
 # MODEL 
 class MnistModel(nn.Module):
+    # on object create 
     def __init__(self):
         super().__init__()
         self.linear = nn.Linear(input_size, num_classes)
-        
+    
+    # Load batch to model
     def forward(self, xb):
         xb = xb.reshape(-1, 784)
         out = self.linear(xb)
         return out
     
+    # one step towards lower loss in training set
     def training_step(self, batch):
         images, labels = batch 
         out = self(images)                  # Generate predictions
         loss = F.cross_entropy(out, labels) # Calculate loss
         return loss
     
+    # one step towards lower loss in validation set and report accuracy
     def validation_step(self, batch):
         images, labels = batch 
         out = self(images)                    # Generate predictions
@@ -64,6 +69,7 @@ class MnistModel(nn.Module):
         acc = accuracy(out, labels)           # Calculate accuracy
         return {'val_loss': loss.detach(), 'val_acc': acc.detach()}
         
+    # epoch end reporting validation set
     def validation_epoch_end(self, outputs):
         batch_losses = [x['val_loss'] for x in outputs]
         epoch_loss = torch.stack(batch_losses).mean()   # Combine losses
@@ -102,7 +108,7 @@ def fit(epochs, lr, model, train_loader, val_loader, opt_func=torch.optim.SGD):
 
 evaluate(model, val_loader)
 
-history = fit(5, 0.001, model, train_loader, val_loader)
+history = fit(20, 0.0001, model, train_loader, val_loader)
 
 accuracies = [r['val_acc'] for r in history]
 plt.plot(accuracies, '-x')
