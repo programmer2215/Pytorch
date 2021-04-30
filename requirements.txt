@@ -1,0 +1,5 @@
+numpy==1.20.1
+jovian==0.2.37
+matplotlib==3.4.1
+torch==1.8.1
+torchvision==0.9.1
