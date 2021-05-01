@@ -108,7 +108,7 @@ def fit(epochs, lr, model, train_loader, val_loader, opt_func=torch.optim.SGD):
 
 evaluate(model, val_loader)
 
-history = fit(20, 0.0001, model, train_loader, val_loader)
+history = fit(15, 0.001, model, train_loader, val_loader)
 
 accuracies = [r['val_acc'] for r in history]
 plt.plot(accuracies, '-x')
